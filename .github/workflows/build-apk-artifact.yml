@@ -1,0 +1,105 @@
+name: Build APK (artifact only)
+
+# 只给自己打测试包用：构建产物只作为 Actions 临时文件（artifact）保留，
+# 不创建 Release、不打 tag、不发任何公开链接。包取回后直接发给用户。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: .
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Python 3.10 (Chaquopy build Python)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install required SDK/NDK & verify
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f | head -n1)"
+          [ -n "$SDKMANAGER" ] || { echo "::error::找不到 sdkmanager"; exit 1; }
+
+          sdkmanager() { "$SDKMANAGER" "$@"; }
+
+          echo "== 仓库里可用的 API 37 平台 / NDK 27 =="
+          ALL="$(sdkmanager --list 2>/dev/null)" || true
+          PLATFORM="$(echo "$ALL" | grep -oE 'platforms;android-37(\.[0-9]+)?' | sort -V | tail -n1 || true)"
+          NDK="$(echo "$ALL" | grep -oE 'ndk;27\.2\.12479018' | sort -V | tail -n1 || true)"
+          BUILD_TOOLS="$(echo "$ALL" | grep -oE 'build-tools;3[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -n1 || true)"
+          echo "PLATFORM=$PLATFORM  NDK=$NDK  BUILD_TOOLS=$BUILD_TOOLS"
+          [ -n "$PLATFORM" ] || { echo "::error::仓库里找不到 android-37 平台"; exit 1; }
+          [ -n "$NDK" ] || { echo "::error::仓库里找不到 ndk;27.2.12479018"; exit 1; }
+
+          # --licenses 在无待接受许可时会因管道 broken pipe 返回非 0,故忽略其结果
+          yes 2>/dev/null | sdkmanager --licenses > /dev/null 2>&1 || true
+          ARGS=("$PLATFORM" "$NDK")
+          [ -n "$BUILD_TOOLS" ] && ARGS+=("$BUILD_TOOLS")
+          sdkmanager "${ARGS[@]}"
+
+          test -d "$SDK_ROOT/platforms/${PLATFORM#platforms;}" \
+            || { echo "::error::$PLATFORM 未安装"; exit 1; }
+          test -d "$SDK_ROOT/ndk/${NDK#ndk;}" || { echo "::error::$NDK 未安装"; exit 1; }
+          python3 -c "import sys; print('build python:', sys.version)"
+
+      - name: chmod gradlew
+        run: chmod +x gradlew
+
+      - name: Verify signing material
+        run: |
+          test -f .key/app-release.jks || { echo "::error::缺少 .key/app-release.jks"; exit 1; }
+          for k in RELEASE_STORE_FILE RELEASE_KEY_ALIAS RELEASE_STORE_PASSWORD RELEASE_KEY_PASSWORD; do
+            grep -q "^$k=" gradle.properties || { echo "::error::gradle.properties 缺少 $k"; exit 1; }
+          done
+          ls -l .key/app-release.jks
+
+      - name: Build release APK
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Rename & verify APK
+        id: apk
+        run: |
+          set -euo pipefail
+          SRC=app/build/outputs/apk/release/X-BOX_release.apk
+          test -f "$SRC" || { echo "::error::未找到 $SRC"; exit 1; }
+
+          OUT="X-BOX_pics-viewer_arm64-v8a.apk"
+          cp "$SRC" "$OUT"
+
+          APKSIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner -type f | sort -r | head -n1)"
+          echo "apksigner: $APKSIGNER"
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$OUT" || { echo "::error::APK 签名校验失败"; exit 1; }
+          fi
+          echo "size: $(du -h "$OUT" | cut -f1)"
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: X-BOX-pics-viewer
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 7
