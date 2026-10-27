@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -72,6 +74,13 @@ class ImageViewerActivity : ComponentActivity() {
         private const val EXTRA_TITLE = "pics_title"
         private const val EXTRA_INDEX = "pics_index"
 
+        // 连点帖子可能 1 秒内调两次 start()，看图页会叠两层：
+        // 点一次返回只关上面那层，看着就像返回没反应。同一组图 1 秒内重复打开直接拦掉。
+        @Volatile
+        private var lastStartMs = 0L
+        @Volatile
+        private var lastUrls: List<String> = emptyList()
+
         /** 拆 pics:// 地址；不是 pics:// 返回 null，pics:// 但无有效图返回空列表。 */
         fun parse(url: String?): List<String>? {
             if (url == null || !url.startsWith(SCHEME)) return null
@@ -81,6 +90,10 @@ class ImageViewerActivity : ComponentActivity() {
         }
 
         fun start(context: Context, title: String, urls: List<String>, index: Int = 0) {
+            val now = SystemClock.uptimeMillis()
+            if (urls == lastUrls && now - lastStartMs < 1000L) return
+            lastUrls = urls
+            lastStartMs = now
             val intent = Intent(context, ImageViewerActivity::class.java).apply {
                 putStringArrayListExtra(EXTRA_URLS, ArrayList(urls))
                 putExtra(EXTRA_TITLE, title)
@@ -194,10 +207,12 @@ private fun ImageViewerScreen(
                 },
             )
         }
-        // 底部：滑块跳页 + 上一张/下一张 + 缩放
+        // 底部：滑块跳页 + 上一张/下一张 + 缩放（底栏加导航栏留白，
+        // 否则最底下一行可能被手势条盖住点不到）
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             if (urls.size > 1) {

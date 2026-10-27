@@ -55,11 +55,17 @@ fun FilterSheet(
                         FilterChip(
                             selected = selection[filter.key.orEmpty()] == valueKey,
                             onClick = {
-                                selection = if (selection[filter.key.orEmpty()] == valueKey) {
+                                // 点一下就直接生效：月份有两百多个选项，确定键在最底下，
+                                // 等用户翻到底点确定，筛选看起来就像点了没反应。
+                                // 这里和首页 chips 保持一致：每点一下就按当前选择重请求一次，
+                                // 表保持打开可继续多选，确定/清除键仍可用（确定只是关表）。
+                                val next = if (selection[filter.key.orEmpty()] == valueKey) {
                                     selection - filter.key.orEmpty()
                                 } else {
                                     selection + (filter.key.orEmpty() to valueKey)
                                 }
+                                selection = next
+                                onConfirm(next)
                             },
                             label = { Text(valueName) },
                             shape = RoundedCornerShape(18.dp),
