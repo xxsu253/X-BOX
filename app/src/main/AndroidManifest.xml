@@ -81,6 +81,9 @@
             android:theme="@style/AppTheme.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity
+            android:name=".ui.activity.ImageViewerActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <activity
             android:name=".ui.activity.MusicPlayerActivity"
             android:configChanges="orientation|screenSize" />
         <activity

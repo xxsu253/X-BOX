@@ -13,6 +13,7 @@ import com.github.tvbox.osc.player.engine.SourcePolicy
 import com.github.tvbox.osc.player.state.PlayState
 import com.github.tvbox.osc.server.ControlManager
 import com.github.tvbox.osc.sourcedata.SourceViewModel
+import com.github.tvbox.osc.ui.activity.ImageViewerActivity
 import com.github.tvbox.osc.util.DefaultConfig
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.ImgUtil
@@ -269,6 +270,30 @@ class PlaybackStarter(private val host: Host) {
     }
 
     fun playUrl(url: String, headers: HashMap<String, String>?) {
+        // pics:// 看图：源的图片帖子（写真、漫画）不走视频播放，播放器不认这个
+        // scheme 以前会直接哑火；这里在任何播放器状态改动前截住，改打开看图页。
+        val pics = ImageViewerActivity.parse(url)
+        if (pics != null) {
+            host.view()?.hideTipOnUiThread()
+            host.cancelPlayTimeout()
+            if (pics.isEmpty()) {
+                host.view()?.showTip(PlaybackController.str(R.string.pics_viewer_empty), false, true)
+                return
+            }
+            val ctx = host.view()?.context()
+            if (ctx != null) {
+                val vod = host.vod()
+                var title = vod?.name ?: ""
+                val epName = try {
+                    host.currentSeries(vod?.playFlag, vod?.playIndex ?: -1)?.name
+                } catch (_: Exception) {
+                    null
+                }
+                if (!epName.isNullOrEmpty()) title = "$title $epName"
+                ImageViewerActivity.start(ctx, title, pics)
+            }
+            return
+        }
         host.syncDecodeFromGlobal()
         val target = attachProxySiteKey(url)
         host.attemptState().localProxySession = SourcePolicy.isLocalProxyUrl(target)

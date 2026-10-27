@@ -534,6 +534,8 @@
     <string name="player_get_info_error">获取播放信息错误</string>
     <string name="player_getting_info">正在获取播放信息</string>
     <string name="player_play_url_empty">获取播放地址为空</string>
+    <string name="pics_viewer_empty">没有可看的图片</string>
+    <string name="pics_viewer_load_failed">图片加载失败</string>
     <string name="player_iso_unsupported">ISO 格式的蓝光原盘无法播放</string>
     <string name="player_iso_music_unsupported">ISO 蓝光原盘不支持音乐模式</string>
     <string name="player_source_invalid">该线路返回的资源不完整</string>
