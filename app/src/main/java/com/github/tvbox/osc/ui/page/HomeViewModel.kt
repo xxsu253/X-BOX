@@ -452,13 +452,13 @@ class HomeViewModel : ViewModel() {
     private fun requestPartition(current: Partition, page: Int) {
         val generation = loadGeneration
         val sourceKey = loadingSourceKey
-        val loader = loaders.getOrPut(current.sort.id.orEmpty()) { PartitionLoader(sourceKey, current.sort) }
+        val loader = loaders.getOrPut(current.sort.id.orEmpty()) { PartitionLoader(sourceKey) }
         scope.launch {
             loadSemaphore.withPermit {
                 if (generation != loadGeneration || loader.released || loader.sourceKey != loadingSourceKey) return@withPermit
                 armWatchdog()
                 val result = suspendCancellableCoroutine<LoaderResult> { cont ->
-                    loader.request(page) { r -> if (cont.isActive) cont.resume(r) }
+                    loader.request(page, current.sort) { r -> if (cont.isActive) cont.resume(r) }
                 }
                 if (!result.stale) {
                     applyPartitionResult(current.sort.id.orEmpty(), page, result.absXml)
@@ -546,7 +546,9 @@ class HomeViewModel : ViewModel() {
         targets.forEach { p -> requestPartition(p, Partition.FIRST_PAGE) }
     }
 
-    private inner class PartitionLoader(val sourceKey: String?, val sort: MovieSort.SortData) {
+    // 注意：loader 不能缓存 sort——applyFilter 是直接改 partition.sort.filterSelect，
+    // 请求必须每次都用当前 partition 的 sort，否则筛选值可能发不出去、列表看着像没反应。
+    private inner class PartitionLoader(val sourceKey: String?) {
         private val svm = SourceViewModel()
         @Volatile
         private var pending: ((LoaderResult) -> Unit)? = null
@@ -574,7 +576,7 @@ class HomeViewModel : ViewModel() {
             }
         }
 
-        fun request(page: Int, onDone: (LoaderResult) -> Unit) {
+        fun request(page: Int, sort: MovieSort.SortData, onDone: (LoaderResult) -> Unit) {
             pending?.invoke(LoaderResult(stale = true, absXml = null))
             pending = onDone
             busy = true
