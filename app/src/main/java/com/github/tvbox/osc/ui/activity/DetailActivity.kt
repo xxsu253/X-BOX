@@ -8,6 +8,7 @@ import com.github.tvbox.osc.util.KV
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Looper
+import android.os.SystemClock
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.compose.setContent
@@ -486,9 +487,14 @@ class DetailActivity : BaseActivity(), PageHost {
         playContainer?.hostResume()
         syncEpisodeAfterMusicPage()
         val container = playContainer ?: return
+        // 看图页刚关掉的这次恢复不要重播：图片帖的播放占位已建、引擎从未出内容，
+        // 正好命中“可恢复”条件，重播会重新解析出 pics://、看图页又弹回来（从 1/39 重开），
+        // 用户永远退不回详情页。只拦看图页关闭后 3 秒内的这次恢复；
+        // 手动点剧集走 Episode 入口、音乐页回来都不受影响。
+        val justClosedViewer = SystemClock.uptimeMillis() - ImageViewerActivity.lastCloseMs < 3000L
         vm.applyPlaybackEntry(
             DetailPlaybackEntry.MusicReturn,
-            resumable = container.hasClaimedPlayback() && !container.ownsEngineContent(),
+            resumable = container.hasClaimedPlayback() && !container.ownsEngineContent() && !justClosedViewer,
         )
     }
 

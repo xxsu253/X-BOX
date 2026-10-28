@@ -49,7 +49,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
 import com.github.tvbox.osc.R
 import kotlinx.coroutines.launch
 
@@ -80,6 +83,13 @@ class ImageViewerActivity : ComponentActivity() {
         private var lastStartMs = 0L
         @Volatile
         private var lastUrls: List<String> = emptyList()
+
+        // 看图页最后一次关闭的时间（uptime 毫秒）。详情页 onResume 有一条
+        // “已占位但引擎没内容就重播”的恢复逻辑，图片帖正好命中：看图页关掉→
+        // 详情页恢复→重新解析出 pics://→看图页又弹回来（从 1/39 重开），
+        // 用户永远退不回详情页。详情页用这个时间戳跳过那一次恢复。
+        @Volatile
+        var lastCloseMs = 0L
 
         /** 拆 pics:// 地址；不是 pics:// 返回 null，pics:// 但无有效图返回空列表。 */
         fun parse(url: String?): List<String>? {
@@ -125,6 +135,11 @@ class ImageViewerActivity : ComponentActivity() {
                 onClose = { finish() },
             )
         }
+    }
+
+    override fun onDestroy() {
+        lastCloseMs = SystemClock.uptimeMillis()
+        super.onDestroy()
     }
 }
 
@@ -345,7 +360,12 @@ private fun ZoomableImage(
                 Modifier
             }
             AsyncImage(
-                model = url,
+                // 看图的大图不写磁盘缓存：39 张原图帖一张就能吃掉上百 MB，
+                // 这就是缓存涨得快的主因。列表封面仍走默认缓存，不受影响。
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(url)
+                    .diskCachePolicy(CachePolicy.DISABLED)
+                    .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 onError = { failed = true },
